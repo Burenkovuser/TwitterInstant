@@ -12,6 +12,8 @@
 #import "RACEXTScope.h"
 #import <Accounts/Accounts.h>
 #import <Social/Social.h>
+#import "RWTweet.h"
+#import "NSArray+LinqExtensions.h"
 
 typedef NS_ENUM(NSInteger, RWTwitterInstantError) {
     RWTwitterInstantErrorAccessDenied,
@@ -63,21 +65,26 @@ static NSString * const RWTwitterInstantDomain = @"TwitterInstant";
                                accountTypeWithAccountTypeIdentifier:ACAccountTypeIdentifierTwitter];
     
     //вызываем метод
-    [[[[[self requestAccessToTwitterSignal]
-        then:^RACSignal *{
+    [[[[[[self requestAccessToTwitterSignal]
+         then:^RACSignal *{
+             @strongify(self)
+             return self.searchText.rac_textSignal;
+         }]
+        filter:^BOOL(NSString *text) {
             @strongify(self)
-            return self.searchText.rac_textSignal;
+            return [self isValidSearchText:text];
         }]
-       filter:^BOOL(NSString *text) {
+       flattenMap:^RACStream *(NSString *text) {
            @strongify(self)
-           return [self isValidSearchText:text];
+           return [self signalForSearchWithText:text];
        }]
-      flattenMap:^RACStream *(NSString *text) {
-          @strongify(self)
-          return [self signalForSearchWithText:text];
-      }]
-     subscribeNext:^(id x) {
-         NSLog(@"%@", x);
+      deliverOn:[RACScheduler mainThreadScheduler]]
+     subscribeNext:^(NSDictionary *jsonSearchResult) {
+         NSArray *statuses = jsonSearchResult[@"statuses"];
+         NSArray *tweets = [statuses linq_select:^id(id tweet) {
+             return [RWTweet tweetWithStatus:tweet];
+         }];
+         [self.resultsViewController displayTweets:tweets];
      } error:^(NSError *error) {
          NSLog(@"An error occurred: %@", error);
      }];
